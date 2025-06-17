@@ -1,0 +1,25 @@
+# fly.toml file configured for your application
+
+app = "your-app-name" # Replace with your app name
+primary_region = "sin" # Or your chosen region
+
+[build]
+  dockerfile = "Dockerfile"
+
+# This section is updated to meet your new requirements.
+# We are selecting a 'performance' machine with 4 CPUs and 4GB of RAM.
+[vm]
+  cpu_kind = "performance"
+  cpus = 4
+  memory_mb = 4096 # 4GB of RAM
+
+[[http_service]]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.ws_options]]
+    # This section enables WebSocket support
