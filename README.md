@@ -1,2 +1,0 @@
-# petalawati
-Vehicle counting 

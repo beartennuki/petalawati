@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Vehicle Counter</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f0f2f6;
+            color: #1c1e21;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 2rem;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            width: 100%;
+            max-width: 1200px;
+        }
+        .main-content {
+            flex-grow: 1;
+            min-width: 60%;
+        }
+        .sidebar {
+            width: 300px;
+            flex-shrink: 0;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+        }
+        h1, h2 {
+            margin-top: 0;
+            color: #050505;
+        }
+        h1 { font-size: 1.75rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.25rem; }
+        .controls label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        .controls input, .controls select, .controls button {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        .controls input[type="file"] {
+            padding: 0.5rem;
+        }
+        .button-group {
+            display: flex;
+            gap: 1rem;
+        }
+        .button-group button {
+            cursor: pointer;
+            border: none;
+            color: #fff;
+            font-weight: bold;
+        }
+        #startButton { background-color: #1877f2; }
+        #stopButton { background-color: #fa383e; }
+        #startButton:disabled, #stopButton:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #video-container {
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 480px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        #video-stream {
+            width: 100%;
+            height: auto;
+            display: none;
+        }
+        #counts-display {
+            list-style: none;
+            padding: 0;
+        }
+        #counts-display li {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #eee;
+        }
+        #counts-display li:last-child {
+            border-bottom: none;
+        }
+        #status-message {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 6px;
+            display: none;
+        }
+        #status-message.success { background-color: #eaf6ec; color: #3c763d; }
+        #status-message.error { background-color: #f2dede; color: #a94442; }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="card">
+                <h1>🚗 Vehicle Counter (FastAPI + WebSocket)</h1>
+                <div id="video-container">
+                    <img id="video-stream" alt="Video stream will appear here">
+                    <span id="placeholder-text">Video stream is off</span>
+                </div>
+            </div>
+        </div>
+        <div class="sidebar">
+            <div class="card controls">
+                <h2>Controls</h2>
+                <label for="yoloVersion">YOLOv8 Version</label>
+                <select id="yoloVersion">
+                    <option value="yolov8n.pt">Nano (Fastest)</option>
+                    <option value="yolov8s.pt" selected>Small</option>
+                    <option value="yolov8m.pt">Medium</option>
+                    <option value="yolov8l.pt">Large</option>
+                    <option value="yolov8x.pt">Extra Large (Slowest)</option>
+                </select>
+
+                <label for="videoFile">Video File (optional)</label>
+                <input type="file" id="videoFile" accept="video/mp4,video/avi">
+
+                <label for="flowDirection">Flow Direction</label>
+                <select id="flowDirection">
+                    <option>Left to Right</option>
+                    <option>Right to Left</option>
+                    <option>Up to Down</option>
+                    <option>Down to Up</option>
+                </select>
+
+                <label for="confThreshold">Confidence Threshold (<span id="confValue">0.40</span>)</label>
+                <input type="range" id="confThreshold" min="0.1" max="1.0" step="0.05" value="0.4">
+
+                <div class="button-group">
+                    <button id="startButton">▶️ Start</button>
+                    <button id="stopButton" disabled>⏹️ Stop</button>
+                </div>
+                <div id="status-message"></div>
+            </div>
+            <div class="card">
+                <h2>📊 Live Counts</h2>
+                <ul id="counts-display">
+                    <li><em>Waiting for data...</em></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- DOM Elements ---
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const videoStream = document.getElementById('video-stream');
+    const placeholderText = document.getElementById('placeholder-text');
+    const countsDisplay = document.getElementById('counts-display');
+    const statusMessage = document.getElementById('status-message');
+    const confThresholdSlider = document.getElementById('confThreshold');
+    const confValueSpan = document.getElementById('confValue');
+
+    let socket; // WebSocket variable
+
+    // --- Event Listeners ---
+    confThresholdSlider.addEventListener('input', () => {
+        confValueSpan.textContent = parseFloat(confThresholdSlider.value).toFixed(2);
+    });
+
+    startButton.addEventListener('click', async () => {
+        const formData = new FormData();
+        const videoFile = document.getElementById('videoFile').files[0];
+
+        formData.append('yolo_version', document.getElementById('yoloVersion').value);
+        if (videoFile) {
+            formData.append('file', videoFile);
+        }
+        formData.append('flow_direction', document.getElementById('flowDirection').value);
+        formData.append('conf_thres', confThresholdSlider.value);
+
+        updateUIForProcessing(true);
+        showStatus('Starting...', 'success');
+
+        try {
+            const response = await fetch('/start', {
+                method: 'POST',
+                body: formData,
+            });
+            const result = await response.json();
+
+            if (result.status === 'started') {
+                connectWebSocket();
+                videoStream.src = `/video_feed?t=${new Date().getTime()}`;
+                videoStream.style.display = 'block';
+                placeholderText.style.display = 'none';
+                showStatus('Processing started.', 'success');
+            } else {
+                showStatus(`Error: ${result.message}`, 'error');
+                updateUIForProcessing(false);
+            }
+        } catch (error) {
+            console.error('Error starting processing:', error);
+            showStatus('Failed to start processing.', 'error');
+            updateUIForProcessing(false);
+        }
+    });
+
+    stopButton.addEventListener('click', async () => {
+        try {
+            await fetch('/stop', { method: 'POST' });
+            showStatus('Stopping process...', 'success');
+        } catch (error) {
+            console.error('Error stopping processing:', error);
+            showStatus('Failed to stop processing.', 'error');
+        }
+    });
+
+    // --- WebSocket and UI Functions ---
+    function connectWebSocket() {
+        const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+        const wsURL = `${wsScheme}://${window.location.host}/ws`;
+        socket = new WebSocket(wsURL);
+
+        socket.onopen = () => console.log("WebSocket connection established.");
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            updateCountsDisplay(data.counts);
+            if (!data.processing) {
+                cleanupAfterStop();
+                showStatus('Video processing complete.', 'success');
+            }
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket connection closed.");
+            cleanupAfterStop();
+        };
+
+        socket.onerror = (error) => {
+            console.error("WebSocket Error:", error);
+            showStatus('Connection error.', 'error');
+            cleanupAfterStop();
+        };
+    }
+
+    function updateCountsDisplay(counts) {
+        countsDisplay.innerHTML = '';
+        if (!counts || Object.keys(counts).length === 0) {
+            countsDisplay.innerHTML = '<li><em>No crossings detected.</em></li>';
+        } else {
+            for (const [vehicle, count] of Object.entries(counts).sort()) {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>${capitalize(vehicle)}</strong>: <span>${count}</span>`;
+                countsDisplay.appendChild(li);
+            }
+        }
+    }
+
+    function cleanupAfterStop() {
+        if (socket) {
+            socket.close();
+            socket = null;
+        }
+        videoStream.src = '';
+        videoStream.style.display = 'none';
+        placeholderText.style.display = 'block';
+        updateUIForProcessing(false);
+    }
+
+    function updateUIForProcessing(isProcessing) {
+        startButton.disabled = isProcessing;
+        stopButton.disabled = !isProcessing;
+        document.getElementById('yoloVersion').disabled = isProcessing;
+        document.getElementById('videoFile').disabled = isProcessing;
+        document.getElementById('flowDirection').disabled = isProcessing;
+        confThresholdSlider.disabled = isProcessing;
+    }
+
+    videoStream.onerror = () => {
+        console.log("Video stream error or ended.");
+    };
+
+    function showStatus(message, type) {
+        statusMessage.textContent = message;
+        statusMessage.className = type;
+        statusMessage.style.display = 'block';
+        setTimeout(() => {
+            statusMessage.style.display = 'none';
+        }, 5000);
+    }
+
+    function capitalize(s) {
+        if (!s) return '';
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+</script>
+
+</body>
+</html>
