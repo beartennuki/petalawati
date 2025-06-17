@@ -1,7 +1,6 @@
 # fly.toml file configured for your application
-
-app = "your-app-name" # Replace with your app name
-primary_region = "sin" # Or your chosen region
+app = "petalawati"    # Replace with your app name
+primary_region = "sin"   # Or your chosen region
 
 [build]
   dockerfile = "Dockerfile"
@@ -13,13 +12,29 @@ primary_region = "sin" # Or your chosen region
   cpus = 4
   memory_mb = 4096 # 4GB of RAM
 
-[[http_service]]
+# This is the corrected services section.
+# It handles both HTTP and WebSocket traffic.
+[[services]]
   internal_port = 8080
-  force_https = true
+  protocol = "tcp"
   auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 0
   processes = ["app"]
 
-  [[http_service.ws_options]]
-    # This section enables WebSocket support
+  # This port handles standard HTTP traffic and redirects to HTTPS
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  # This port handles secure TLS and HTTP traffic
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # Concurrency settings for handling connections
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 200 # Adjust as needed
+    soft_limit = 150 # Adjust as needed
