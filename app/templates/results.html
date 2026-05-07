@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Results — Petalawati{% endblock %}
+
+{% block content %}
+<div x-data="resultsPage('{{ job.job_id }}')" x-init="load()">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Results</h1>
+      <p class="text-gray-500 text-sm mt-1 font-mono">{{ job.job_id[:8] }}…</p>
+    </div>
+    <a :href="`/api/jobs/{{ job.job_id }}/download`"
+       class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-5 py-2.5 rounded-lg transition flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      Download model.keras
+    </a>
+  </div>
+
+  <!-- Final stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" x-show="metrics.length">
+    <template x-for="[key, label, color] in [
+      ['val_accuracy','Val Accuracy','text-emerald-400'],
+      ['accuracy','Train Accuracy','text-blue-400'],
+      ['val_loss','Val Loss','text-orange-400'],
+      ['loss','Train Loss','text-red-400']
+    ]">
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="text-xs text-gray-500 mb-1" x-text="label"></div>
+        <div class="text-3xl font-bold" :class="color"
+             x-text="key.includes('accuracy')
+               ? (metrics[metrics.length-1][key]*100).toFixed(1) + '%'
+               : metrics[metrics.length-1][key].toFixed(4)">
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Charts + confusion matrix side by side -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+    <!-- Loss / Acc charts -->
+    <div class="space-y-6">
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-400 mb-4">Loss Curve</h3>
+        <canvas id="lossChart" height="160"></canvas>
+      </div>
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-400 mb-4">Accuracy Curve</h3>
+        <canvas id="accChart" height="160"></canvas>
+      </div>
+    </div>
+
+    <!-- Confusion matrix -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h3 class="text-sm font-medium text-gray-400 mb-4">Confusion Matrix</h3>
+      <div x-show="confusion && classes.length" x-cloak class="overflow-auto">
+        <table class="text-xs border-collapse w-full">
+          <thead>
+            <tr>
+              <th class="p-1 text-gray-600 text-right text-xs">Pred →</th>
+              <template x-for="cls in classes" :key="cls">
+                <th class="p-1 text-gray-400 font-medium text-center" x-text="cls.slice(0,8)"></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(row, i) in confusion" :key="i">
+              <tr>
+                <td class="p-1 text-gray-400 font-medium text-right pr-2" x-text="classes[i]?.slice(0,8)"></td>
+                <template x-for="(cell, j) in row" :key="j">
+                  <td class="p-1 text-center font-mono rounded"
+                      :style="`background: rgba(167,139,250,${cell / confusionMax})`"
+                      :class="i === j ? 'text-white font-bold' : 'text-gray-400'"
+                      x-text="cell">
+                  </td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div x-show="!confusion" class="text-center py-12 text-gray-600 text-sm">
+        Confusion matrix not available
+      </div>
+    </div>
+  </div>
+
+  <!-- Full epoch table -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-800 text-sm font-medium text-gray-400">Full Epoch Log</div>
+    <div class="overflow-auto max-h-80">
+      <table class="w-full text-xs text-right">
+        <thead class="bg-gray-800/60 text-gray-500 uppercase tracking-wide sticky top-0">
+          <tr>
+            <th class="px-4 py-2 text-left">Epoch</th>
+            <th class="px-4 py-2">Loss</th>
+            <th class="px-4 py-2">Val Loss</th>
+            <th class="px-4 py-2">Accuracy</th>
+            <th class="px-4 py-2">Val Accuracy</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          <template x-for="m in metrics" :key="m.epoch">
+            <tr class="hover:bg-gray-800/30">
+              <td class="px-4 py-2 text-left text-gray-400" x-text="m.epoch"></td>
+              <td class="px-4 py-2 font-mono" x-text="m.loss.toFixed(4)"></td>
+              <td class="px-4 py-2 font-mono" x-text="m.val_loss.toFixed(4)"></td>
+              <td class="px-4 py-2 font-mono" x-text="(m.accuracy*100).toFixed(1)+'%'"></td>
+              <td class="px-4 py-2 font-mono text-emerald-400" x-text="(m.val_accuracy*100).toFixed(1)+'%'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function resultsPage(jobId) {
+  return {
+    metrics: [],
+    classes: [],
+    confusion: null,
+    confusionMax: 1,
+
+    async load() {
+      const res = await fetch(`/api/jobs/${jobId}/progress`);
+      const data = await res.json();
+      this.metrics   = data.metrics || [];
+      this.classes   = data.classes || [];
+      this.confusion = data.confusion_matrix;
+      if (this.confusion) {
+        this.confusionMax = Math.max(1, ...this.confusion.flat());
+      }
+      this.$nextTick(() => this.initCharts());
+    },
+
+    initCharts() {
+      if (!this.metrics.length) return;
+      const epochs = this.metrics.map(m => `E${m.epoch}`);
+      const mkChart = (id, d0, d1, color) => new Chart(document.getElementById(id), {
+        type: 'line',
+        data: { labels: epochs, datasets: [
+          { label: 'Train', data: d0, borderColor: color, tension: 0.3, pointRadius: 2 },
+          { label: 'Val',   data: d1, borderColor: '#a78bfa', tension: 0.3, pointRadius: 2, borderDash: [4,3] },
+        ]},
+        options: {
+          animation: false,
+          plugins: { legend: { labels: { color: '#9ca3af', boxWidth: 12 } } },
+          scales: {
+            x: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+            y: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+          }
+        }
+      });
+      mkChart('lossChart', this.metrics.map(m=>m.loss),     this.metrics.map(m=>m.val_loss), '#f87171');
+      mkChart('accChart',  this.metrics.map(m=>m.accuracy), this.metrics.map(m=>m.val_accuracy), '#34d399');
+    }
+  }
+}
+</script>
+{% endblock %}

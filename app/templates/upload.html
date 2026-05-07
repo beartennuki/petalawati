@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Upload Dataset — Petalawati{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-white">Upload Dataset</h1>
+    <p class="text-gray-500 text-sm mt-1">
+      ZIP file with class folders inside — e.g. <code class="bg-gray-800 px-1 rounded">cats/</code>, <code class="bg-gray-800 px-1 rounded">dogs/</code>
+    </p>
+  </div>
+
+  <div x-data="uploader()" class="space-y-6">
+
+    <!-- Drop zone -->
+    <div
+      @dragover.prevent="dragging = true"
+      @dragleave="dragging = false"
+      @drop.prevent="handleDrop($event)"
+      :class="dragging ? 'border-violet-400 bg-violet-900/10' : 'border-gray-700 bg-gray-900'"
+      class="border-2 border-dashed rounded-xl p-12 text-center transition cursor-pointer"
+      @click="$refs.fileInput.click()"
+    >
+      <input type="file" accept=".zip" x-ref="fileInput" class="hidden" @change="handleFile($event.target.files[0])">
+      <div x-show="!file" class="space-y-3">
+        <div class="text-4xl">📦</div>
+        <p class="text-gray-300 font-medium">Drop your ZIP here or click to browse</p>
+        <p class="text-gray-600 text-sm">Supported: .zip · ImageFolder structure</p>
+      </div>
+      <div x-show="file" x-cloak class="space-y-2">
+        <div class="text-3xl">✅</div>
+        <p class="text-gray-300 font-medium" x-text="file?.name"></p>
+        <p class="text-gray-500 text-sm" x-text="formatSize(file?.size)"></p>
+      </div>
+    </div>
+
+    <!-- Upload button -->
+    <button
+      @click="upload()"
+      :disabled="!file || uploading"
+      :class="(!file || uploading) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-violet-500'"
+      class="w-full bg-violet-600 text-white font-medium py-3 rounded-lg transition"
+    >
+      <span x-show="!uploading">Upload & Continue</span>
+      <span x-show="uploading" x-cloak class="flex items-center justify-center gap-2">
+        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        Uploading…
+      </span>
+    </button>
+
+    <!-- Error -->
+    <div x-show="error" x-cloak
+         class="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm"
+         x-text="error">
+    </div>
+
+    <!-- Preview after upload -->
+    <div x-show="result" x-cloak class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <h2 class="font-semibold text-white">Dataset Preview</h2>
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="bg-gray-800 rounded-lg p-4">
+          <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Classes</div>
+          <div class="text-2xl font-bold text-white" x-text="result?.classes?.length"></div>
+        </div>
+        <div class="bg-gray-800 rounded-lg p-4">
+          <div class="text-gray-500 text-xs uppercase tracking-wide mb-1">Images</div>
+          <div class="text-2xl font-bold text-white" x-text="result?.num_images?.toLocaleString()"></div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <template x-for="cls in result?.classes" :key="cls">
+          <span class="px-3 py-1 bg-violet-900/40 border border-violet-800 text-violet-300 rounded-full text-xs" x-text="cls"></span>
+        </template>
+      </div>
+      <a :href="'/configure/' + result?.job_id"
+         class="block w-full text-center bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-lg transition">
+        Configure Model →
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function uploader() {
+  return {
+    file: null,
+    dragging: false,
+    uploading: false,
+    error: null,
+    result: null,
+
+    handleDrop(e) {
+      this.dragging = false;
+      const f = e.dataTransfer.files[0];
+      if (f) this.handleFile(f);
+    },
+    handleFile(f) {
+      this.error = null;
+      this.result = null;
+      if (!f.name.endsWith('.zip')) {
+        this.error = 'Please upload a .zip file';
+        return;
+      }
+      this.file = f;
+    },
+    formatSize(bytes) {
+      if (!bytes) return '';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    },
+    async upload() {
+      this.uploading = true;
+      this.error = null;
+      const form = new FormData();
+      form.append('file', this.file);
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Upload failed');
+        this.result = data;
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.uploading = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

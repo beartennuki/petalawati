@@ -1,0 +1,21 @@
+name: petalawati
+prefect-version: 3.0.0
+
+build: null
+push: null
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: "."
+
+deployments:
+  - name: cnn-deploy
+    version: null
+    tags: []
+    description: CNN training pipeline for Petalawati
+    entrypoint: app/pipelines/training_flow.py:training_flow
+    work_pool:
+      name: cnn-pool
+      work_queue_name: default
+    parameters: {}
+    schedules: []

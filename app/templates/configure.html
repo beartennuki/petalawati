@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Configure — Petalawati{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-white">Configure Training</h1>
+    <p class="text-gray-500 text-sm mt-1">
+      {{ job.classes|length }} classes · {{ job.num_images }} images
+      <span class="ml-2 font-mono text-xs text-gray-600">{{ job.job_id[:8] }}…</span>
+    </p>
+  </div>
+
+  <div x-data="configForm('{{ job.job_id }}')" class="space-y-6">
+
+    <!-- Architecture -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <h2 class="font-semibold text-white text-sm uppercase tracking-wide text-gray-400">Model Architecture</h2>
+      <div class="grid grid-cols-1 gap-3">
+        {% set arch_meta = {
+          "kernarc":  ("Multi-kernel attention gate · 3 parallel conv branches (2×, 4×, 8×) fused via sigmoid mask · Best for high-res detail", "⭐ Recommended"),
+          "swiftpan": ("Lightweight 3-stage multiply-add attention chain · ~300 preprocessing params · Fast on CPU/edge", ""),
+          "sepfuse":  ("Separable-FPN · bottom-up SepConv2D + top-down pyramid merge · Strong on multi-scale patterns", ""),
+          "dualfuse": ("Dual-stream CNN · full-res + half-res paths fused before head · Good for datasets with size variance", ""),
+          "syncgen":  ("Strided encoder mirroring a supervised decoder · BN + LeakyReLU blocks · Great for structured/synthetic data", ""),
+        } %}
+        {% for key, label in architectures.items() %}
+        <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition"
+               :class="config.architecture === '{{ key }}' ? 'border-violet-500 bg-violet-900/20' : 'border-gray-700 hover:border-gray-600'">
+          <input type="radio" name="arch" value="{{ key }}"
+                 x-model="config.architecture" class="accent-violet-500">
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-sm text-white">{{ label }}</span>
+              {% if arch_meta[key][1] %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300 border border-violet-700">{{ arch_meta[key][1] }}</span>
+              {% endif %}
+            </div>
+            <div class="text-xs text-gray-500 mt-0.5">{{ arch_meta[key][0] }}</div>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Hyperparams -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+      <h2 class="font-semibold text-sm uppercase tracking-wide text-gray-400">Hyperparameters</h2>
+
+      <!-- Epochs -->
+      <div class="space-y-1">
+        <div class="flex justify-between text-sm">
+          <label class="text-gray-300">Epochs</label>
+          <span class="text-violet-400 font-mono" x-text="config.epochs"></span>
+        </div>
+        <input type="range" min="1" max="100" x-model.number="config.epochs"
+               class="w-full accent-violet-500">
+      </div>
+
+      <!-- Learning rate -->
+      <div class="space-y-1">
+        <label class="text-sm text-gray-300">Learning Rate</label>
+        <select x-model.number="config.learning_rate"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500">
+          <option value="0.01">0.01</option>
+          <option value="0.001" selected>0.001 (default)</option>
+          <option value="0.0001">0.0001</option>
+          <option value="0.00001">0.00001</option>
+        </select>
+      </div>
+
+      <!-- Batch size -->
+      <div class="space-y-2">
+        <label class="text-sm text-gray-300">Batch Size</label>
+        <div class="flex gap-2">
+          {% for bs in [8, 16, 32, 64] %}
+          <button type="button"
+                  @click="config.batch_size = {{ bs }}"
+                  :class="config.batch_size === {{ bs }} ? 'bg-violet-600 border-violet-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'"
+                  class="flex-1 border rounded-lg py-2 text-sm font-mono transition">{{ bs }}</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Image size -->
+      <div class="space-y-2">
+        <label class="text-sm text-gray-300">Image Size</label>
+        <div class="flex gap-2">
+          {% for sz in [128, 224, 299] %}
+          <button type="button"
+                  @click="config.image_size = {{ sz }}"
+                  :class="config.image_size === {{ sz }} ? 'bg-violet-600 border-violet-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'"
+                  class="flex-1 border rounded-lg py-2 text-sm font-mono transition">{{ sz }}px</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Toggles -->
+      <div class="space-y-3 pt-2 border-t border-gray-800">
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <div class="text-sm text-gray-300">Data Augmentation</div>
+            <div class="text-xs text-gray-600">Random flip, rotation, zoom</div>
+          </div>
+          <button @click="config.augment = !config.augment" type="button"
+                  :class="config.augment ? 'bg-violet-600' : 'bg-gray-700'"
+                  class="relative w-10 h-5 rounded-full transition">
+            <span :class="config.augment ? 'translate-x-5' : 'translate-x-1'"
+                  class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+          </button>
+        </label>
+
+        <!-- Freeze base not applicable — all 5 architectures train from scratch -->
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" x-cloak
+         class="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm"
+         x-text="error">
+    </div>
+
+    <!-- Submit -->
+    <button @click="submit()"
+            :disabled="submitting"
+            :class="submitting ? 'opacity-40 cursor-not-allowed' : 'hover:bg-violet-500'"
+            class="w-full bg-violet-600 text-white font-medium py-3 rounded-lg transition">
+      <span x-show="!submitting">Start Training</span>
+      <span x-show="submitting" x-cloak class="flex items-center justify-center gap-2">
+        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        Submitting…
+      </span>
+    </button>
+
+  </div>
+</div>
+
+<script>
+function configForm(jobId) {
+  return {
+    submitting: false,
+    error: null,
+    config: {
+      job_id: jobId,
+      architecture: 'kernarc',
+      learning_rate: 0.001,
+      epochs: 10,
+      batch_size: 32,
+      image_size: 224,
+      val_split: 0.2,
+      augment: true,
+      freeze_base: true,
+    },
+    async submit() {
+      this.submitting = true;
+      this.error = null;
+      try {
+        const res = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.config),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Submission failed');
+        window.location.href = '/training/' + jobId;
+      } catch (e) {
+        this.error = e.message;
+        this.submitting = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

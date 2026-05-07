@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Training — Petalawati{% endblock %}
+
+{% block content %}
+<div x-data="trainingMonitor('{{ job.job_id }}')" x-init="start()">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Training Monitor</h1>
+      <p class="text-gray-500 text-sm mt-1 font-mono">{{ job.job_id[:8] }}…</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span x-show="status === 'running'" x-cloak
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-900/50 text-blue-400 border border-blue-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span> Running
+      </span>
+      <span x-show="status === 'completed'" x-cloak
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Completed
+      </span>
+      <span x-show="status === 'pending'" x-cloak
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse"></span> Pending
+      </span>
+      <span x-show="status === 'failed'" x-cloak
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-red-900/50 text-red-400 border border-red-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> Failed
+      </span>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h3 class="text-sm font-medium text-gray-400 mb-4">Loss</h3>
+      <canvas id="lossChart" height="180"></canvas>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h3 class="text-sm font-medium text-gray-400 mb-4">Accuracy</h3>
+      <canvas id="accChart" height="180"></canvas>
+    </div>
+  </div>
+
+  <!-- Latest stats -->
+  <div x-show="metrics.length > 0" x-cloak class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <template x-for="[key, label] in [['val_accuracy','Val Accuracy'],['val_loss','Val Loss'],['accuracy','Train Accuracy'],['loss','Train Loss']]">
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div class="text-xs text-gray-500 mb-1" x-text="label"></div>
+        <div class="text-2xl font-bold text-white"
+             x-text="metrics.length ? metrics[metrics.length-1][key].toFixed(4) : '—'"></div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Epoch table -->
+  <div x-show="metrics.length > 0" x-cloak class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-gray-800 text-sm font-medium text-gray-400">Epoch Log</div>
+    <div class="overflow-auto max-h-64">
+      <table class="w-full text-xs text-right">
+        <thead class="bg-gray-800/60 text-gray-500 uppercase tracking-wide sticky top-0">
+          <tr>
+            <th class="px-4 py-2 text-left">Epoch</th>
+            <th class="px-4 py-2">Loss</th>
+            <th class="px-4 py-2">Val Loss</th>
+            <th class="px-4 py-2">Accuracy</th>
+            <th class="px-4 py-2">Val Accuracy</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          <template x-for="m in [...metrics].reverse()" :key="m.epoch">
+            <tr class="hover:bg-gray-800/30">
+              <td class="px-4 py-2 text-left text-gray-400" x-text="m.epoch"></td>
+              <td class="px-4 py-2 font-mono" x-text="m.loss.toFixed(4)"></td>
+              <td class="px-4 py-2 font-mono" x-text="m.val_loss.toFixed(4)"></td>
+              <td class="px-4 py-2 font-mono" x-text="(m.accuracy * 100).toFixed(1) + '%'"></td>
+              <td class="px-4 py-2 font-mono text-emerald-400" x-text="(m.val_accuracy * 100).toFixed(1) + '%'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pending / waiting state -->
+  <div x-show="metrics.length === 0 && status !== 'failed'" x-cloak
+       class="text-center py-16 border border-dashed border-gray-800 rounded-xl">
+    <div class="text-4xl mb-3 animate-pulse">⏳</div>
+    <p class="text-gray-500">Waiting for training to start…</p>
+    <p class="text-gray-600 text-xs mt-1">Make sure the Prefect worker is running</p>
+  </div>
+
+  <!-- Error -->
+  <div x-show="error" x-cloak
+       class="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm"
+       x-text="'Error: ' + error">
+  </div>
+
+  <!-- Completed CTA -->
+  <div x-show="status === 'completed'" x-cloak
+       class="mt-6 flex justify-end">
+    <a :href="'/results/{{ job.job_id }}'"
+       class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-2.5 rounded-lg transition">
+      View Results →
+    </a>
+  </div>
+
+</div>
+
+<script>
+function trainingMonitor(jobId) {
+  let lossChart, accChart, pollTimer;
+
+  return {
+    status: '{{ job.status }}',
+    metrics: [],
+    error: null,
+
+    start() {
+      this.initCharts();
+      this.poll();
+    },
+
+    initCharts() {
+      const chartOpts = (label, color) => ({
+        type: 'line',
+        data: { labels: [], datasets: [
+          { label: 'Train', data: [], borderColor: color, backgroundColor: color + '22', tension: 0.3, pointRadius: 3 },
+          { label: 'Val', data: [], borderColor: '#a78bfa', backgroundColor: '#a78bfa22', tension: 0.3, pointRadius: 3, borderDash: [4,3] },
+        ]},
+        options: {
+          animation: false,
+          plugins: { legend: { labels: { color: '#9ca3af', boxWidth: 12 } } },
+          scales: {
+            x: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+            y: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+          }
+        }
+      });
+
+      lossChart = new Chart(document.getElementById('lossChart'), chartOpts('Loss', '#f87171'));
+      accChart  = new Chart(document.getElementById('accChart'),  chartOpts('Accuracy', '#34d399'));
+    },
+
+    updateCharts() {
+      const epochs = this.metrics.map(m => `E${m.epoch}`);
+      lossChart.data.labels = epochs;
+      lossChart.data.datasets[0].data = this.metrics.map(m => m.loss);
+      lossChart.data.datasets[1].data = this.metrics.map(m => m.val_loss);
+      lossChart.update();
+
+      accChart.data.labels = epochs;
+      accChart.data.datasets[0].data = this.metrics.map(m => m.accuracy);
+      accChart.data.datasets[1].data = this.metrics.map(m => m.val_accuracy);
+      accChart.update();
+    },
+
+    async poll() {
+      try {
+        const res = await fetch(`/api/jobs/${jobId}/progress`);
+        const data = await res.json();
+        this.status = data.status;
+        this.metrics = data.metrics || [];
+        this.error = data.error;
+        this.updateCharts();
+
+        if (data.status === 'completed') {
+          setTimeout(() => { window.location.href = `/results/${jobId}`; }, 2000);
+          return;
+        }
+        if (data.status === 'failed') return;
+      } catch (e) {
+        console.error(e);
+      }
+      pollTimer = setTimeout(() => this.poll(), 2000);
+    }
+  }
+}
+</script>
+{% endblock %}
