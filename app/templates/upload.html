@@ -85,6 +85,23 @@
 </div>
 
 <script>
+function extractErrorMessage(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data.detail === 'string' && data.detail) return data.detail;
+  if (Array.isArray(data.errors) && data.errors.length) return data.errors.join('; ');
+  if (data.detail && Array.isArray(data.detail.errors) && data.detail.errors.length) {
+    return data.detail.errors.join('; ');
+  }
+  if (typeof data.detail === 'object' && data.detail !== null) {
+    try {
+      return JSON.stringify(data.detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 function uploader() {
   return {
     file: null,
@@ -120,7 +137,7 @@ function uploader() {
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: form });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Upload failed');
+        if (!res.ok) throw new Error(extractErrorMessage(data, 'Upload failed'));
         this.result = data;
       } catch (e) {
         this.error = e.message;

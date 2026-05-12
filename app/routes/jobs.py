@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from app.schemas import JobConfig, ProgressResponse
-from app.job_store import get_job, update_job, read_metrics, read_confusion, delete_job_files
+from app.job_store import get_job, update_job, read_metrics, read_confusion, delete_job_files, upload_zip_path
+from app.dataset_archive import check_channel_consistency
 router = APIRouter(prefix="/api")
 
 
@@ -12,6 +13,20 @@ async def create_training_job(config: JobConfig):
         raise HTTPException(404, "Job not found — upload a dataset first")
 
     update_job(config.job_id, config=config, status="pending", error=None)
+
+    if config.run_consistency_check:
+        zip_path = upload_zip_path(config.job_id)
+        if zip_path.exists():
+            consistency_errors = check_channel_consistency(zip_path)
+            if consistency_errors:
+                update_job(config.job_id, status="failed", error="; ".join(consistency_errors))
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": "; ".join(consistency_errors),
+                        "errors": consistency_errors,
+                    },
+                )
 
     # Submit to Prefect work pool (non-blocking)
     try:

@@ -89,6 +89,51 @@ port_in_use() {
   lsof -ti "tcp:$1" >/dev/null 2>&1
 }
 
+pids_for_port() {
+  lsof -ti "tcp:$1" 2>/dev/null | sort -u
+}
+
+kill_processes_on_port() {
+  local port="$1"
+  local pids
+  local pid
+  local i
+
+  pids="$(pids_for_port "$port")"
+  [[ -n "$pids" ]] || return 0
+
+  log "Port $port is in use by PID(s): $(tr '\n' ' ' <<<"$pids" | xargs). Attempting shutdown."
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill "$pid" 2>/dev/null || true
+  done <<<"$pids"
+
+  for ((i=1; i<=10; i++)); do
+    if ! port_in_use "$port"; then
+      log "Port $port is free after graceful shutdown."
+      return 0
+    fi
+    sleep 1
+  done
+
+  log "Port $port is still busy after 10s; forcing shutdown."
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill -9 "$pid" 2>/dev/null || true
+  done <<<"$pids"
+
+  for ((i=1; i<=5; i++)); do
+    if ! port_in_use "$port"; then
+      log "Port $port is free after forced shutdown."
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
 wait_for_port() {
   local port="$1"
   local label="$2"
@@ -109,20 +154,34 @@ wait_for_port() {
 requirements_satisfied() {
   "$PYTHON_BIN" - <<'PY'
 from pathlib import Path
-import pkg_resources
-import sys
+from importlib.metadata import packages_distributions, PackageNotFoundError
+import re, sys
+
+dist_names = {d.lower() for dists in packages_distributions().values() for d in dists}
 
 requirements = Path("requirements.txt")
 for raw_line in requirements.read_text().splitlines():
     line = raw_line.strip()
     if not line or line.startswith("#"):
         continue
-    try:
-        pkg_resources.require(line)
-    except Exception:
+    pkg = re.split(r"[>=<!;\[\s]", line)[0].strip().lower().replace("-", "_")
+    if not pkg:
+        continue
+    if pkg not in dist_names:
         sys.exit(1)
 
 sys.exit(0)
+PY
+}
+
+prefect_api_ready() {
+  "$PYTHON_BIN" - <<'PY'
+import urllib.request, sys
+try:
+    with urllib.request.urlopen("http://127.0.0.1:4200/api/health", timeout=2) as r:
+        sys.exit(0 if r.status == 200 else 1)
+except Exception:
+    sys.exit(1)
 PY
 }
 
@@ -143,17 +202,36 @@ ensure_dependencies() {
   "$PIP_BIN" install -r "$ROOT_DIR/requirements.txt"
 }
 
+wait_for_prefect_api() {
+  local attempts=60
+  local i
+  for ((i=1; i<=attempts; i++)); do
+    if prefect_api_ready; then
+      log "Prefect API is ready."
+      return 0
+    fi
+    sleep 1
+  done
+  fail "Prefect API did not respond within ${attempts}s. Check $LOG_DIR/prefect-server.log."
+}
+
 start_prefect_server() {
-  if port_in_use "$PREFECT_PORT"; then
-    log "Prefect server already appears to be running on port $PREFECT_PORT. Skipping server start."
+  if prefect_api_ready; then
+    log "Prefect server is already running and API is healthy."
     return
+  fi
+
+  if port_in_use "$PREFECT_PORT"; then
+    if ! kill_processes_on_port "$PREFECT_PORT"; then
+      fail "Port $PREFECT_PORT is in use but the Prefect API is not responding. Kill the process holding port $PREFECT_PORT and retry."
+    fi
   fi
 
   log "Starting Prefect server."
   "$PREFECT_BIN" server start >"$LOG_DIR/prefect-server.log" 2>&1 &
   SERVER_PID=$!
   printf '%s\n' "$SERVER_PID" >"$SERVER_PID_FILE"
-  wait_for_port "$PREFECT_PORT" "Prefect server"
+  wait_for_prefect_api
 }
 
 ensure_work_pool() {

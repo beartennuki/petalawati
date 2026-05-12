@@ -63,6 +63,20 @@
     </template>
   </div>
 
+  <!-- Timing -->
+  <div x-show="metrics.length > 0" x-cloak class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div class="text-xs text-gray-500 mb-1">Last Epoch Time</div>
+      <div class="text-2xl font-bold text-white"
+           x-text="formatDuration(latestMetric()?.epoch_seconds)"></div>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div class="text-xs text-gray-500 mb-1">Estimated Time Remaining</div>
+      <div class="text-2xl font-bold text-white"
+           x-text="formatEta(latestMetric()?.eta_seconds)"></div>
+    </div>
+  </div>
+
   <!-- Epoch table -->
   <div x-show="metrics.length > 0" x-cloak class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-6">
     <div class="px-5 py-3 border-b border-gray-800 text-sm font-medium text-gray-400">Epoch Log</div>
@@ -93,11 +107,19 @@
   </div>
 
   <!-- Pending / waiting state -->
-  <div x-show="metrics.length === 0 && status !== 'failed'" x-cloak
+  <div x-show="metrics.length === 0 && status === 'pending'" x-cloak
        class="text-center py-16 border border-dashed border-gray-800 rounded-xl">
     <div class="text-4xl mb-3 animate-pulse">⏳</div>
     <p class="text-gray-500">Waiting for training to start…</p>
     <p class="text-gray-600 text-xs mt-1">Make sure the Prefect worker is running</p>
+  </div>
+
+  <!-- Running but first epoch not yet logged -->
+  <div x-show="metrics.length === 0 && status === 'running'" x-cloak
+       class="text-center py-16 border border-dashed border-blue-900 rounded-xl">
+    <div class="text-4xl mb-3 animate-spin" style="display:inline-block">⚙️</div>
+    <p class="text-blue-400 mt-3">Training is starting up…</p>
+    <p class="text-gray-600 text-xs mt-1">Epoch metrics will appear here shortly</p>
   </div>
 
   <!-- Error -->
@@ -163,6 +185,35 @@ function trainingMonitor(jobId) {
       accChart.data.datasets[0].data = this.metrics.map(m => m.accuracy);
       accChart.data.datasets[1].data = this.metrics.map(m => m.val_accuracy);
       accChart.update();
+    },
+
+    latestMetric() {
+      return this.metrics.length ? this.metrics[this.metrics.length - 1] : null;
+    },
+
+    formatDuration(seconds) {
+      if (seconds == null || Number.isNaN(seconds)) return '—';
+      if (seconds < 60) return `${seconds.toFixed(1)}s`;
+
+      const totalSeconds = Math.round(seconds);
+      const minutes = Math.floor(totalSeconds / 60);
+      const remainingSeconds = totalSeconds % 60;
+      return `${minutes}m ${remainingSeconds}s`;
+    },
+
+    formatEta(seconds) {
+      if (seconds == null || Number.isNaN(seconds)) return 'Calibrating…';
+      if (seconds <= 0 && this.status === 'completed') return 'Complete';
+      if (seconds <= 0) return 'Finishing…';
+
+      const totalSeconds = Math.round(seconds);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const remainingSeconds = totalSeconds % 60;
+
+      if (hours > 0) return `${hours}h ${minutes}m`;
+      if (minutes > 0) return `${minutes}m ${remainingSeconds}s`;
+      return `${remainingSeconds}s`;
     },
 
     async poll() {

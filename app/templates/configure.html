@@ -17,13 +17,6 @@
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
       <h2 class="font-semibold text-white text-sm uppercase tracking-wide text-gray-400">Model Architecture</h2>
       <div class="grid grid-cols-1 gap-3">
-        {% set arch_meta = {
-          "kernarc":  ("Multi-kernel attention gate · 3 parallel conv branches (2×, 4×, 8×) fused via sigmoid mask · Best for high-res detail", "⭐ Recommended"),
-          "swiftpan": ("Lightweight 3-stage multiply-add attention chain · ~300 preprocessing params · Fast on CPU/edge", ""),
-          "sepfuse":  ("Separable-FPN · bottom-up SepConv2D + top-down pyramid merge · Strong on multi-scale patterns", ""),
-          "dualfuse": ("Dual-stream CNN · full-res + half-res paths fused before head · Good for datasets with size variance", ""),
-          "syncgen":  ("Strided encoder mirroring a supervised decoder · BN + LeakyReLU blocks · Great for structured/synthetic data", ""),
-        } %}
         {% for key, label in architectures.items() %}
         <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition"
                :class="config.architecture === '{{ key }}' ? 'border-violet-500 bg-violet-900/20' : 'border-gray-700 hover:border-gray-600'">
@@ -32,15 +25,19 @@
           <div class="flex-1">
             <div class="flex items-center gap-2">
               <span class="font-medium text-sm text-white">{{ label }}</span>
-              {% if arch_meta[key][1] %}
-                <span class="text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300 border border-violet-700">{{ arch_meta[key][1] }}</span>
+              {% if catalog[key]["badge"] %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300 border border-violet-700">{{ catalog[key]["badge"] }}</span>
               {% endif %}
             </div>
-            <div class="text-xs text-gray-500 mt-0.5">{{ arch_meta[key][0] }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">{{ catalog[key]["intro"] }}</div>
           </div>
         </label>
         {% endfor %}
       </div>
+      <a href="/catalogue" class="inline-flex items-center gap-2 text-xs text-violet-400 hover:text-violet-300 transition">
+        Browse full architecture catalogue
+        <span aria-hidden="true">→</span>
+      </a>
     </div>
 
     <!-- Hyperparams -->
@@ -95,6 +92,20 @@
         </div>
       </div>
 
+      <!-- Train / test split -->
+      <div class="space-y-1">
+        <div class="flex justify-between text-sm">
+          <label class="text-gray-300">Train / Test Split</label>
+          <span class="text-violet-400 font-mono" x-text="`${Math.round((1 - config.val_split) * 100)} / ${Math.round(config.val_split * 100)}`"></span>
+        </div>
+        <input type="range" min="0.1" max="0.5" step="0.05" x-model.number="config.val_split"
+               class="w-full accent-violet-500">
+        <div class="flex justify-between text-xs text-gray-600">
+          <span>More training data</span>
+          <span>More test data</span>
+        </div>
+      </div>
+
       <!-- Toggles -->
       <div class="space-y-3 pt-2 border-t border-gray-800">
         <label class="flex items-center justify-between cursor-pointer">
@@ -110,7 +121,28 @@
           </button>
         </label>
 
-        <!-- Freeze base not applicable — all 5 architectures train from scratch -->
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <div class="text-sm text-gray-300">Consistency Check</div>
+            <div class="text-xs text-gray-600">Verify image channel modes before training</div>
+          </div>
+          <button @click="config.run_consistency_check = !config.run_consistency_check" type="button"
+                  :class="config.run_consistency_check ? 'bg-violet-600' : 'bg-gray-700'"
+                  class="relative w-10 h-5 rounded-full transition">
+            <span :class="config.run_consistency_check ? 'translate-x-5' : 'translate-x-1'"
+                  class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+          </button>
+        </label>
+
+        <div x-show="!config.run_consistency_check" x-cloak
+             class="flex items-start gap-2 rounded-lg border border-yellow-800 bg-yellow-900/20 px-3 py-2.5 text-xs text-yellow-400">
+          <svg class="mt-0.5 w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+          </svg>
+          <span>Consistency check is disabled. Images with unsupported channel formats (e.g. grayscale+alpha) or mixed colour modes may cause the training job to fail.</span>
+        </div>
+
+        <!-- Freeze base not applicable — all architectures train from scratch -->
       </div>
     </div>
 
@@ -139,19 +171,37 @@
 </div>
 
 <script>
+function extractErrorMessage(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data.detail === 'string' && data.detail) return data.detail;
+  if (Array.isArray(data.errors) && data.errors.length) return data.errors.join('; ');
+  if (data.detail && Array.isArray(data.detail.errors) && data.detail.errors.length) {
+    return data.detail.errors.join('; ');
+  }
+  if (typeof data.detail === 'object' && data.detail !== null) {
+    try {
+      return JSON.stringify(data.detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 function configForm(jobId) {
   return {
     submitting: false,
     error: null,
     config: {
       job_id: jobId,
-      architecture: 'kernarc',
+      architecture: 'resnet',
       learning_rate: 0.001,
       epochs: 10,
       batch_size: 32,
       image_size: 224,
-      val_split: 0.2,
+      val_split: 0.3,
       augment: true,
+      run_consistency_check: true,
     },
     async submit() {
       this.submitting = true;
@@ -163,7 +213,7 @@ function configForm(jobId) {
           body: JSON.stringify(this.config),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Submission failed');
+        if (!res.ok) throw new Error(extractErrorMessage(data, 'Submission failed'));
         window.location.href = '/training/' + jobId;
       } catch (e) {
         this.error = e.message;

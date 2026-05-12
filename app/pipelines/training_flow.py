@@ -1,6 +1,6 @@
 from prefect import flow, get_run_logger
 from app.job_store import get_job, update_job
-from app.pipelines.tasks.data_tasks import extract_dataset, build_datasets
+from app.pipelines.tasks.data_tasks import extract_dataset, validate_decodable_images, build_datasets
 from app.pipelines.tasks.model_tasks import build_model
 from app.pipelines.tasks.train_tasks import train_model, evaluate_model, save_model
 from app.config import UPLOADS_DIR
@@ -20,6 +20,7 @@ def training_flow(job_id: str):
         # Data
         zip_path = str(UPLOADS_DIR / f"{job_id}.zip")
         dataset_info = extract_dataset(zip_path, job_id)
+        validate_decodable_images(dataset_info["data_dir"])
         train_ds, val_ds, class_names = build_datasets(
             data_dir=dataset_info["data_dir"],
             image_size=cfg.image_size,

@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from app.job_store import list_jobs, get_job
-from app.config import ARCHITECTURES
+from app.config import ARCHITECTURES, ARCHITECTURE_CATALOG
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -20,6 +20,15 @@ async def upload_page(request: Request):
     return templates.TemplateResponse(request, "upload.html", {"request": request})
 
 
+@router.get("/catalogue", response_class=HTMLResponse)
+async def catalogue_page(request: Request):
+    return templates.TemplateResponse(request, "catalogue.html", {
+        "request": request,
+        "architectures": ARCHITECTURES,
+        "catalog": ARCHITECTURE_CATALOG,
+    })
+
+
 @router.get("/configure/{job_id}", response_class=HTMLResponse)
 async def configure_page(request: Request, job_id: str):
     job = get_job(job_id)
@@ -29,6 +38,7 @@ async def configure_page(request: Request, job_id: str):
         "request": request,
         "job": job,
         "architectures": ARCHITECTURES,
+        "catalog": ARCHITECTURE_CATALOG,
     })
 
 

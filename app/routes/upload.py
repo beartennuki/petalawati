@@ -3,7 +3,7 @@ import zipfile
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import UPLOADS_DIR
-from app.dataset_archive import inspect_dataset_archive
+from app.dataset_archive import inspect_dataset_archive, validate_dataset_archive
 from app.job_store import create_job
 
 router = APIRouter(prefix="/api")
@@ -33,6 +33,11 @@ async def upload_dataset(file: UploadFile = File(...)):
     if not classes:
         zip_path.unlink(missing_ok=True)
         raise HTTPException(400, "ZIP must contain class subdirectories")
+
+    validation_errors = validate_dataset_archive(zip_path)
+    if validation_errors:
+        zip_path.unlink(missing_ok=True)
+        raise HTTPException(400, {"errors": validation_errors})
 
     create_job(job_id, classes, num_images)
 
