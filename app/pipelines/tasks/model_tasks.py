@@ -2,7 +2,7 @@ from prefect import task
 
 
 @task(name="build-model")
-def build_model(architecture: str, num_classes: int, image_size: int, freeze_base: bool):
+def build_model(architecture: str, num_classes: int, image_size: int):
     import tensorflow as tf
     builders = {
         "kernarc":  _build_kernarc,

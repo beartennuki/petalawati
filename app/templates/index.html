@@ -63,15 +63,15 @@
         <td class="px-5 py-3 text-gray-500 text-xs">{{ job.created_at[:19].replace("T", " ") }}</td>
         <td class="px-5 py-3">
           <div class="flex gap-2">
-            {% if job.status in ["running", "pending"] %}
+            {% if job.status == "pending" %}
+              <a href="/configure/{{ job.job_id }}"
+                 class="text-violet-400 hover:text-violet-300 text-xs underline underline-offset-2">Configure</a>
+            {% elif job.status == "running" %}
               <a href="/training/{{ job.job_id }}"
                  class="text-blue-400 hover:text-blue-300 text-xs underline underline-offset-2">Monitor</a>
             {% elif job.status == "completed" %}
               <a href="/results/{{ job.job_id }}"
                  class="text-emerald-400 hover:text-emerald-300 text-xs underline underline-offset-2">Results</a>
-            {% elif job.status == "pending" %}
-              <a href="/configure/{{ job.job_id }}"
-                 class="text-violet-400 hover:text-violet-300 text-xs underline underline-offset-2">Configure</a>
             {% endif %}
           </div>
         </td>

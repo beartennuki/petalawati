@@ -21,3 +21,5 @@ ARCHITECTURES = {
     "dualfuse": "DualFuse",
     "syncgen":  "SyncGen",
 }
+
+ARCHITECTURE_KEYS = tuple(ARCHITECTURES.keys())

@@ -1,18 +1,26 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
+from app.config import ARCHITECTURE_KEYS
+
+ArchitectureKey = Literal[
+    ARCHITECTURE_KEYS[0],
+    ARCHITECTURE_KEYS[1],
+    ARCHITECTURE_KEYS[2],
+    ARCHITECTURE_KEYS[3],
+    ARCHITECTURE_KEYS[4],
+]
 
 
 class JobConfig(BaseModel):
     job_id: str
-    architecture: str
-    learning_rate: float = 0.001
-    epochs: int = 10
-    batch_size: int = 32
-    image_size: int = 224
-    val_split: float = 0.2
+    architecture: ArchitectureKey
+    learning_rate: float = Field(default=0.001, gt=0)
+    epochs: int = Field(default=10, ge=1, le=100)
+    batch_size: int = Field(default=32, ge=1)
+    image_size: int = Field(default=224, ge=32)
+    val_split: float = Field(default=0.2, gt=0, lt=1)
     augment: bool = True
-    freeze_base: bool = True
 
 
 class JobStatus(BaseModel):

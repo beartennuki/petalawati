@@ -1,6 +1,4 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
 from app.routes import pages, upload, jobs, artifacts
 

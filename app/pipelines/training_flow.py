@@ -33,7 +33,6 @@ def training_flow(job_id: str):
             architecture=cfg.architecture,
             num_classes=len(class_names),
             image_size=cfg.image_size,
-            freeze_base=cfg.freeze_base,
         )
 
         # Train

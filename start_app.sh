@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$ROOT_DIR/.venv"
+PYTHON_BIN="$VENV_DIR/bin/python"
+PIP_BIN="$VENV_DIR/bin/pip"
+PREFECT_BIN="$VENV_DIR/bin/prefect"
+UVICORN_BIN="$VENV_DIR/bin/uvicorn"
+LOG_DIR="$ROOT_DIR/logs"
+PREFECT_PORT=4200
+APP_PORT=8000
+WORK_POOL="cnn-pool"
+DEPLOYMENT_NAME="training-flow/cnn-deploy"
+
+mkdir -p "$LOG_DIR"
+
+cleanup() {
+  if [[ -n "${WORKER_PID:-}" ]] && kill -0 "$WORKER_PID" 2>/dev/null; then
+    kill "$WORKER_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+  fi
+}
+
+log() {
+  printf '[start_app] %s\n' "$1"
+}
+
+print_banner() {
+  cat <<'EOF'
+██████╗ ███████╗████████╗ █████╗ ██╗      █████╗ ██╗    ██╗ █████╗ ████████╗██╗
+██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██║     ██╔══██╗██║    ██║██╔══██╗╚══██╔══╝██║
+██████╔╝█████╗     ██║   ███████║██║     ███████║██║ █╗ ██║███████║   ██║   ██║
+██╔═══╝ ██╔══╝     ██║   ██╔══██║██║     ██╔══██║██║███╗██║██╔══██║   ██║   ██║
+██║     ███████╗   ██║   ██║  ██║███████╗██║  ██║╚███╔███╔╝██║  ██║   ██║   ██║
+╚═╝     ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝
+EOF
+}
+
+fail() {
+  printf '[start_app] Error: %s\n' "$1" >&2
+  exit 1
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+port_in_use() {
+  lsof -ti "tcp:$1" >/dev/null 2>&1
+}
+
+wait_for_port() {
+  local port="$1"
+  local label="$2"
+  local attempts="${3:-60}"
+  local i
+
+  for ((i=1; i<=attempts; i++)); do
+    if port_in_use "$port"; then
+      log "$label is reachable on port $port."
+      return 0
+    fi
+    sleep 1
+  done
+
+  fail "$label did not become reachable on port $port."
+}
+
+requirements_satisfied() {
+  "$PYTHON_BIN" - <<'PY'
+from pathlib import Path
+import pkg_resources
+import sys
+
+requirements = Path("requirements.txt")
+for raw_line in requirements.read_text().splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        continue
+    try:
+        pkg_resources.require(line)
+    except Exception:
+        sys.exit(1)
+
+sys.exit(0)
+PY
+}
+
+ensure_venv() {
+  [[ -x "$PYTHON_BIN" ]] || fail "Virtual environment not found at .venv/. Create it first."
+  [[ -x "$PIP_BIN" ]] || fail "pip not found in .venv/bin."
+  [[ -x "$PREFECT_BIN" ]] || fail "prefect not found in .venv/bin."
+  [[ -x "$UVICORN_BIN" ]] || fail "uvicorn not found in .venv/bin."
+}
+
+ensure_dependencies() {
+  if requirements_satisfied; then
+    log "requirements.txt is already satisfied. Skipping pip install."
+    return
+  fi
+
+  log "Installing missing Python dependencies from requirements.txt."
+  "$PIP_BIN" install -r "$ROOT_DIR/requirements.txt"
+}
+
+start_prefect_server() {
+  if port_in_use "$PREFECT_PORT"; then
+    log "Prefect server already appears to be running on port $PREFECT_PORT. Skipping server start."
+    return
+  fi
+
+  log "Starting Prefect server."
+  "$PREFECT_BIN" server start >"$LOG_DIR/prefect-server.log" 2>&1 &
+  SERVER_PID=$!
+  wait_for_port "$PREFECT_PORT" "Prefect server"
+}
+
+ensure_work_pool() {
+  if "$PREFECT_BIN" work-pool inspect "$WORK_POOL" >/dev/null 2>&1; then
+    log "Prefect work pool '$WORK_POOL' already exists."
+    return
+  fi
+
+  log "Creating Prefect work pool '$WORK_POOL'."
+  "$PREFECT_BIN" work-pool create "$WORK_POOL" --type process >/dev/null
+}
+
+ensure_deployment() {
+  if "$PREFECT_BIN" deployment inspect "$DEPLOYMENT_NAME" >/dev/null 2>&1; then
+    log "Prefect deployment '$DEPLOYMENT_NAME' already exists."
+    return
+  fi
+
+  log "Deploying training flow from prefect.yaml."
+  (
+    cd "$ROOT_DIR"
+    PYTHONPATH=. "$PREFECT_BIN" deploy --prefect-file prefect.yaml --all >/dev/null
+  )
+}
+
+start_worker() {
+  if pgrep -f "prefect worker start --pool $WORK_POOL" >/dev/null 2>&1; then
+    log "A Prefect worker for pool '$WORK_POOL' is already running. Skipping worker start."
+    return
+  fi
+
+  log "Starting Prefect worker for pool '$WORK_POOL'."
+  "$PREFECT_BIN" worker start --pool "$WORK_POOL" >"$LOG_DIR/prefect-worker.log" 2>&1 &
+  WORKER_PID=$!
+}
+
+start_web_app() {
+  if port_in_use "$APP_PORT"; then
+    fail "Port $APP_PORT is already in use. Stop the existing app or change the port."
+  fi
+
+  print_banner
+  log "Starting FastAPI app on http://127.0.0.1:$APP_PORT"
+  log "FastAPI URL: http://127.0.0.1:$APP_PORT"
+  log "Prefect URL: http://127.0.0.1:$PREFECT_PORT"
+  log "Logs: $LOG_DIR/prefect-server.log, $LOG_DIR/prefect-worker.log"
+  trap cleanup EXIT INT TERM
+
+  (
+    cd "$ROOT_DIR"
+    PYTHONPATH=. exec "$UVICORN_BIN" app.main:app --reload --port "$APP_PORT"
+  )
+}
+
+main() {
+  ensure_venv
+  ensure_dependencies
+  start_prefect_server
+  ensure_work_pool
+  ensure_deployment
+  start_worker
+  start_web_app
+}
+
+main "$@"

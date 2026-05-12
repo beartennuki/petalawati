@@ -2,8 +2,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from app.schemas import JobConfig, ProgressResponse
 from app.job_store import get_job, update_job, read_metrics, read_confusion
-from app.config import PREFECT_API_URL
-
 router = APIRouter(prefix="/api")
 
 
@@ -13,7 +11,7 @@ async def create_training_job(config: JobConfig):
     if job is None:
         raise HTTPException(404, "Job not found — upload a dataset first")
 
-    update_job(config.job_id, config=config, status="pending")
+    update_job(config.job_id, config=config, status="pending", error=None)
 
     # Submit to Prefect work pool (non-blocking)
     try:

@@ -11,7 +11,8 @@ router = APIRouter(prefix="/api")
 
 @router.post("/upload")
 async def upload_dataset(file: UploadFile = File(...)):
-    if not file.filename.endswith(".zip"):
+    filename = file.filename or ""
+    if not filename.lower().endswith(".zip"):
         raise HTTPException(400, "Only .zip files are accepted")
 
     job_id = str(uuid.uuid4())
