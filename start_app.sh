@@ -9,20 +9,56 @@ PIP_BIN="$VENV_DIR/bin/pip"
 PREFECT_BIN="$VENV_DIR/bin/prefect"
 UVICORN_BIN="$VENV_DIR/bin/uvicorn"
 LOG_DIR="$ROOT_DIR/logs"
+RUN_DIR="$ROOT_DIR/.run"
 PREFECT_PORT=4200
 APP_PORT=8000
 WORK_POOL="cnn-pool"
 DEPLOYMENT_NAME="training-flow/cnn-deploy"
+SERVER_PID_FILE="$RUN_DIR/prefect-server.pid"
+WORKER_PID_FILE="$RUN_DIR/prefect-worker.pid"
 
 mkdir -p "$LOG_DIR"
+mkdir -p "$RUN_DIR"
 
 cleanup() {
-  if [[ -n "${WORKER_PID:-}" ]] && kill -0 "$WORKER_PID" 2>/dev/null; then
-    kill "$WORKER_PID" 2>/dev/null || true
+  local exit_code=$?
+
+  cleanup_service "${WORKER_PID:-}" "${WORKER_PID_FILE:-}" "Prefect worker"
+  cleanup_service "${SERVER_PID:-}" "${SERVER_PID_FILE:-}" "Prefect server"
+
+  exit "$exit_code"
+}
+
+cleanup_service() {
+  local pid="${1:-}"
+  local pid_file="${2:-}"
+  local label="${3:-service}"
+  local i
+
+  if [[ -z "$pid" ]]; then
+    [[ -n "$pid_file" ]] && rm -f "$pid_file"
+    return
   fi
-  if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID" 2>/dev/null || true
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    [[ -n "$pid_file" ]] && rm -f "$pid_file"
+    return
   fi
+
+  log "Stopping $label (PID $pid)."
+  kill "$pid" 2>/dev/null || true
+
+  for ((i=1; i<=10; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      [[ -n "$pid_file" ]] && rm -f "$pid_file"
+      return
+    fi
+    sleep 1
+  done
+
+  log "$label did not exit after 10s; forcing shutdown."
+  kill -9 "$pid" 2>/dev/null || true
+  [[ -n "$pid_file" ]] && rm -f "$pid_file"
 }
 
 log() {
@@ -116,6 +152,7 @@ start_prefect_server() {
   log "Starting Prefect server."
   "$PREFECT_BIN" server start >"$LOG_DIR/prefect-server.log" 2>&1 &
   SERVER_PID=$!
+  printf '%s\n' "$SERVER_PID" >"$SERVER_PID_FILE"
   wait_for_port "$PREFECT_PORT" "Prefect server"
 }
 
@@ -130,11 +167,6 @@ ensure_work_pool() {
 }
 
 ensure_deployment() {
-  if "$PREFECT_BIN" deployment inspect "$DEPLOYMENT_NAME" >/dev/null 2>&1; then
-    log "Prefect deployment '$DEPLOYMENT_NAME' already exists."
-    return
-  fi
-
   log "Deploying training flow from prefect.yaml."
   (
     cd "$ROOT_DIR"
@@ -149,8 +181,10 @@ start_worker() {
   fi
 
   log "Starting Prefect worker for pool '$WORK_POOL'."
-  "$PREFECT_BIN" worker start --pool "$WORK_POOL" >"$LOG_DIR/prefect-worker.log" 2>&1 &
+  PETALAWATI_ROOT="$ROOT_DIR" PYTHONPATH="$ROOT_DIR" \
+    "$PREFECT_BIN" worker start --pool "$WORK_POOL" >"$LOG_DIR/prefect-worker.log" 2>&1 &
   WORKER_PID=$!
+  printf '%s\n' "$WORKER_PID" >"$WORKER_PID_FILE"
 }
 
 start_web_app() {

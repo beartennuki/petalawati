@@ -1,9 +1,10 @@
 from prefect import task
+from prefect.cache_policies import NO_CACHE
 from app.job_store import append_metric, model_path, confusion_path
 import json
 
 
-@task(name="train-model")
+@task(name="train-model", cache_policy=NO_CACHE)
 def train_model(model, train_ds, val_ds, job_id: str, epochs: int, learning_rate: float):
     import tensorflow as tf
 
@@ -33,7 +34,7 @@ def train_model(model, train_ds, val_ds, job_id: str, epochs: int, learning_rate
     return model
 
 
-@task(name="evaluate-model")
+@task(name="evaluate-model", cache_policy=NO_CACHE)
 def evaluate_model(model, val_ds, class_names: list[str], job_id: str):
     import numpy as np
     from sklearn.metrics import confusion_matrix
@@ -48,6 +49,6 @@ def evaluate_model(model, val_ds, class_names: list[str], job_id: str):
     confusion_path(job_id).write_text(json.dumps(cm.tolist()))
 
 
-@task(name="save-model")
+@task(name="save-model", cache_policy=NO_CACHE)
 def save_model(model, job_id: str):
     model.save(str(model_path(job_id)))

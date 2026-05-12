@@ -6,7 +6,7 @@ push: null
 
 pull:
   - prefect.deployments.steps.set_working_directory:
-      directory: "."
+      directory: "{{ $PETALAWATI_ROOT }}"
 
 deployments:
   - name: cnn-deploy

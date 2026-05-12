@@ -1,7 +1,8 @@
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
-from app.config import ARTIFACTS_DIR
+from app.config import ARTIFACTS_DIR, UPLOADS_DIR
 from app.schemas import JobStatus, JobConfig
 
 
@@ -9,6 +10,10 @@ def _job_dir(job_id: str) -> Path:
     d = ARTIFACTS_DIR / job_id
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _job_dir_path(job_id: str) -> Path:
+    return ARTIFACTS_DIR / job_id
 
 
 def _job_path(job_id: str) -> Path:
@@ -64,6 +69,14 @@ def model_path(job_id: str) -> Path:
     return _job_dir(job_id) / "model.keras"
 
 
+def upload_zip_path(job_id: str) -> Path:
+    return UPLOADS_DIR / f"{job_id}.zip"
+
+
+def extracted_upload_dir(job_id: str) -> Path:
+    return UPLOADS_DIR / job_id
+
+
 def append_metric(job_id: str, metric: dict) -> None:
     path = metrics_path(job_id)
     metrics = json.loads(path.read_text()) if path.exists() else []
@@ -83,3 +96,13 @@ def read_confusion(job_id: str) -> list[list[int]] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def delete_job_files(job_id: str) -> None:
+    for path in (_job_dir_path(job_id), extracted_upload_dir(job_id)):
+        if path.exists():
+            shutil.rmtree(path)
+
+    zip_path = upload_zip_path(job_id)
+    if zip_path.exists():
+        zip_path.unlink()

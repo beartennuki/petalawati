@@ -1,7 +1,8 @@
 from prefect import task
+from prefect.cache_policies import NO_CACHE
 
 
-@task(name="build-model")
+@task(name="build-model", cache_policy=NO_CACHE)
 def build_model(architecture: str, num_classes: int, image_size: int):
     import tensorflow as tf
     builders = {

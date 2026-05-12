@@ -31,6 +31,7 @@ class JobStatus(BaseModel):
     num_images: int = 0
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     error: Optional[str] = None
+    flow_run_id: Optional[str] = None
 
 
 class EpochMetric(BaseModel):

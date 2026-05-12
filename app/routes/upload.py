@@ -1,9 +1,9 @@
 import uuid
 import zipfile
-from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import UPLOADS_DIR
+from app.dataset_archive import inspect_dataset_archive
 from app.job_store import create_job
 
 router = APIRouter(prefix="/api")
@@ -29,31 +29,10 @@ async def upload_dataset(file: UploadFile = File(...)):
         zip_path.unlink(missing_ok=True)
         raise HTTPException(400, "Uploaded file is not a valid ZIP")
 
-    # Discover top-level directories = classes
-    classes = sorted({
-        p.split("/")[1] if p.count("/") >= 1 else p.split("/")[0]
-        for p in names
-        if "/" in p and not p.endswith("/")
-    } - {""})
-
-    # Fallback: single nested folder — go one level deeper
-    if len(classes) == 1 and all(p.startswith(classes[0] + "/") for p in names if "/" in p):
-        deeper = sorted({
-            p.split("/")[2]
-            for p in names
-            if p.count("/") >= 2 and not p.endswith("/")
-        } - {""})
-        if deeper:
-            classes = deeper
-
+    classes, num_images = inspect_dataset_archive(names)
     if not classes:
         zip_path.unlink(missing_ok=True)
         raise HTTPException(400, "ZIP must contain class subdirectories")
-
-    num_images = sum(
-        1 for n in names
-        if Path(n).suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    )
 
     create_job(job_id, classes, num_images)
 
